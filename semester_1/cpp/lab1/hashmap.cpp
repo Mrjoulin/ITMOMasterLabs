@@ -145,7 +145,8 @@ bool HashMap::remove(const int key) {
         if (entry.state == OCCUPIED && entry.key == key) {
             entry.state = DELETED;
             entry.key = 0;
-            entry.value = std::string();
+            entry.value.clear();
+            // entry.value = std::string();
             --element_count;
             return true;
         }
@@ -198,55 +199,3 @@ void HashMap::display() const {
         std::cout << std::endl;
     }
 }
-
-
-// // Example usage and test
-// int main() {
-//     HashMap dict;
-//
-//     // Test insertions
-//     dict.insert(-1, "Apple");
-//     dict.insert(-2, "Banana");
-//     dict.insert(-3, "Cherry");
-//     dict.insert(15, "Date"); // This might cause collision
-//
-//     std::cout << "After insertions:\n";
-//     dict.display();
-//
-//     // Test finds
-//     auto result = dict.find(2);
-//     if (result.has_value())
-//         std::cout << "Found key 2: " << result.value() << "\n";
-//     else
-//         std::cerr << "Key 2 not found!\n";
-//
-//     // Test update
-//     dict.insert(2, "Blueberry");
-//     std::cout << "After updating key 2:\n";
-//
-//     result = dict.find(2);
-//     if (result.has_value())
-//         std::cout << "Key 2 updated: " << result.value() << "\n";
-//     else
-//         std::cerr << "Key 2 not found after update!\n";
-//
-//     // Test contains
-//     std::cout << "Contains key 3: " << dict.contains(3) << "\n";
-//     std::cout << "Contains key 99: " << dict.contains(99) << "\n";
-//
-//     // Test removal
-//     std::cout << "Removing key 1 success: " << dict.remove(1) << std::endl;
-//     std::cout << "After removing key 1:\n";
-//     std::cout << "Contains key 1: " << dict.contains(1) << "\n";
-//     dict.display();
-//
-//     // Test rehashing by adding more elements
-//     for (int i = 10; i < 20; ++i) {
-//         dict.insert(i, "Value" + std::to_string(i));
-//     }
-//
-//     std::cout << "After adding more elements (should trigger rehash):\n";
-//     dict.display();
-//
-//     return 0;
-// }
