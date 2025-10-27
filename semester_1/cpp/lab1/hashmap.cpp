@@ -44,7 +44,7 @@ void HashMap::rehash() {
     }
 }
 
-size_t HashMap::find_next_prime(size_t n) { // O(n * sqrt(n)) - worst case
+size_t HashMap::find_next_prime(size_t n) {
     if (n < 2) return 2;
     if (n < 4) return n;
 
