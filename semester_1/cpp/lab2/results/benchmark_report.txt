@@ -2,7 +2,7 @@
 
 Generated: Dec 15 2025 15:53:13
 
-Function            Image Size     Time (ms)      MP/sec         MB/sec         Iterations
+Function            Image Size     Time (μs)      MP/sec         MB/sec         Iterations
 ------------------------------------------------------------------------------------------
 histogram_naive     640x480        391.240        785.197        785.197        20        
 histogram_simd      640x480        91.117         3371.502       3371.502       20        

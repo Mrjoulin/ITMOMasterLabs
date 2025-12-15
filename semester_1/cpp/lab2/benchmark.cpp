@@ -370,7 +370,7 @@ void generate_report(const std::vector<BenchmarkResult>& results, const std::str
 
     report << std::left << std::setw(20) << "Function"
            << std::setw(15) << "Image Size"
-           << std::setw(15) << "Time (ms)"
+           << std::setw(15) << "Time (μs)"
            << std::setw(15) << "MP/sec"
            << std::setw(15) << "MB/sec"
            << std::setw(10) << "Iterations" << "\n";
