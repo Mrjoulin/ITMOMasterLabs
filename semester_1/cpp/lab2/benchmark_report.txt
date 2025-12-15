@@ -1,0 +1,43 @@
+=== SIMD BENCHMARK REPORT ===
+
+Generated: Dec 15 2025 15:14:20
+
+Function            Image Size     Time (ms)      MP/sec         MB/sec         Iterations
+------------------------------------------------------------------------------------------
+histogram_naive     640x480        407.833        753.249        753.249        20        
+histogram_simd      640x480        97.896         3138.029       3138.029       20        
+histogram_naive     1280x720       1199.123       768.562        768.562        20        
+histogram_simd      1280x720       295.048        3123.561       3123.561       20        
+histogram_naive     1920x1080      2680.440       773.604        773.604        20        
+histogram_simd      1920x1080      671.308        3088.894       3088.894       20        
+histogram_naive     3840x2160      10663.275      777.847        777.847        20        
+histogram_simd      3840x2160      2638.771       3143.282       3143.282       20        
+histogram_naive     512x512        333.642        785.705        785.705        20        
+histogram_simd      512x512        84.638         3097.256       3097.256       20        
+histogram_naive     1000x1000      1293.283       773.226        773.226        20        
+histogram_simd      1000x1000      313.050        3194.378       3194.378       20        
+blend_naive         640x480        1430.752       214.712        858.849        20        
+blend_simd          640x480        244.977        1253.995       5015.979       20        
+blend_naive         1280x720       4211.913       218.808        875.232        20        
+blend_simd          1280x720       893.727        1031.187       4124.749       20        
+blend_naive         1920x1080      9598.408       216.036        864.143        20        
+blend_simd          1920x1080      1916.948       1081.720       4326.878       20        
+blend_naive         3840x2160      38244.281      216.879        867.518        20        
+blend_simd          3840x2160      8046.650       1030.789       4123.157       20        
+blend_naive         512x512        1143.758       229.195        916.781        20        
+blend_simd          512x512        197.546        1327.004       5308.015       20        
+blend_naive         2000x2000      17410.162      229.751        919.003        20        
+blend_simd          2000x2000      3048.613       1312.072       5248.289       20        
+blend_naive         1241x932       5322.465       217.308        869.230        20        
+blend_simd          1241x932       1079.298       1071.634       4286.535       20        
+histogram_naive     275x183        71.513         703.723        703.723        20        
+histogram_simd      275x183        60.606         830.360        830.360        20        
+histogram_naive     2500x1666      6386.210       652.186        652.186        20        
+histogram_simd      2500x1666      4947.740       841.799        841.799        20        
+
+=== SUMMARY ===
+Average histogram speedup: 3.35x
+Max histogram speedup: 4.17x
+
+Average blend speedup: 5.25x
+Max blend speedup: 5.84x
