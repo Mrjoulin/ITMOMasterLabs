@@ -1,11 +1,3 @@
-#include <iostream>
-#include <eve/arch/spec.hpp>
-#include <eve/arch/cpu/wide.hpp>
-#include <opencv2/opencv.hpp>
-#include <opencv2/highgui.hpp>
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/core/mat.hpp>
-
 #include "benchmark.h"
 #include "blend.h"
 #include "hist.h"
@@ -36,11 +28,11 @@ int manual_test() {
     auto end = Clock::now();
     double time_μs = std::chrono::duration<double, std::micro>(end - start).count();
 
-    std::cout << "Native time (μs): " << time_μs << std::endl;
+    std::cout << "Naive time (μs): " << time_μs << std::endl;
 
     // cv::imshow("Display window", blended);
     // cv::waitKey(0); // Wait for a keystroke in the window
-    cv::imwrite("results/blended_native.png", blended);
+    cv::imwrite("results/blended_naive.png", blended);
 
     start = Clock::now();
     cv::Mat blended_simd = blend_simd(resized_fg, resized_bg);
@@ -63,7 +55,7 @@ int manual_test() {
     auto hist_naive = histogram_naive(hist_test, n_bins);
     end = Clock::now();
     time_μs = std::chrono::duration<double, std::micro>(end - start).count();
-    std::cout << "Native time (μs): " << time_μs << std::endl;
+    std::cout << "Naive time (μs): " << time_μs << std::endl;
 
     std::cout << "Naive: " << std::endl;
     for (uint32_t i: hist_naive)
