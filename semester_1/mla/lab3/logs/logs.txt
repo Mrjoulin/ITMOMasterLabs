@@ -1,0 +1,31 @@
+Running data pipeline...
+Data pipeline finished in 0.45 sec
+Train size: (1279, 11) Test size: (320, 11)
+Start training 3 our and 3 sklearn SVMs
+- Done poly in 29.58
+- Done rbf in 112.65
+- Done linear in 117.19
+
+Metrics comparison:
+        Method  Kernel  Test size  Train Time (sec)  Accuracy  Precision    Recall        F1
+0      Our SVM  linear        320            117.19  0.734375   0.668790  0.760870  0.711864
+1      Our SVM    poly        320             29.58  0.609375   0.549618  0.521739  0.535316
+2      Our SVM     rbf        320            112.65  0.784375   0.785124  0.688406  0.733591
+3  Sklearn SVM  linear        320              0.02  0.734375   0.668790  0.760870  0.711864
+4  Sklearn SVM    poly        320              0.01  0.746875   0.659218  0.855072  0.744479
+5  Sklearn SVM     rbf        320              0.01  0.768750   0.700000  0.811594  0.751678
+
+Support Vectors Info
+
+Our SVM with kernel Linear:
+- Количество опорных векторов: 755
+- Максимальное lambda: 1.000000
+- Минимальное lambda: 0.134944
+Our SVM with kernel Poly(degree=3):
+- Количество опорных векторов: 1279
+- Максимальное lambda: 0.894887
+- Минимальное lambda: 0.092374
+Our SVM with kernel RBF(gamma=0.090):
+- Количество опорных векторов: 784
+- Максимальное lambda: 1.000000
+- Минимальное lambda: 0.025164

@@ -1,0 +1,63 @@
+Running data pipeline...
+Data pipeline finished in 0.34 sec
+Train size: (559, 9) Test size: (140, 9)
+
+Selecting the optimal k using the LOO method:
+----------------------------------------
+k =  1, Accuracy LOO: 0.9517
+k =  2, Accuracy LOO: 0.9517
+k =  3, Accuracy LOO: 0.9606
+k =  4, Accuracy LOO: 0.9589
+k =  5, Accuracy LOO: 0.9624
+k =  6, Accuracy LOO: 0.9606
+k =  7, Accuracy LOO: 0.9624
+k =  8, Accuracy LOO: 0.9624
+k =  9, Accuracy LOO: 0.9660
+k = 10, Accuracy LOO: 0.9624
+k = 11, Accuracy LOO: 0.9642
+k = 12, Accuracy LOO: 0.9642
+k = 13, Accuracy LOO: 0.9642
+k = 14, Accuracy LOO: 0.9642
+k = 15, Accuracy LOO: 0.9642
+k = 16, Accuracy LOO: 0.9642
+k = 17, Accuracy LOO: 0.9642
+k = 18, Accuracy LOO: 0.9642
+k = 19, Accuracy LOO: 0.9642
+k = 20, Accuracy LOO: 0.9624
+----------------------------------------
+Optimal k: 9 with accuracy 0.9660
+
+Metrics comparison:
+        Method  Test size  Accuracy  Precision   Recall        F1
+0      Our KNN        140  0.957143   0.987805  0.94186  0.964286
+1  Sklearn KNN        140  0.957143   0.987805  0.94186  0.964286
+
+Coincidence of predictions:
+             Our KNN  Sklearn KNN
+Our KNN          1.0          1.0
+Sklearn KNN      1.0          1.0
+
+Start of prototype selection:
+Initialization: |Ω| = 2, CCV = 0.0002
+Iteration 1: added object 327, |Ω| = 3, CCV = 0.0002
+Stopping at iteration 2: no improvements found
+Final |Ω| = 3, CCV = 0.0002
+
+Selection results:
+Original size: 559 samples
+After selection: 3 samples
+Compression ratio: 186.33x
+
+Metrics comparison:
+                     Method  Test size  Accuracy  Precision    Recall        F1
+0                   Our KNN        140  0.957143   0.987805  0.941860  0.964286
+1               Sklearn KNN        140  0.957143   0.987805  0.941860  0.964286
+2      Our KNN (Prototypes)        140  0.985714   0.988372  0.988372  0.988372
+3  Sklearn KNN (Prototypes)        140  0.985714   0.988372  0.988372  0.988372
+
+Coincidence of predictions:
+                           Our KNN  Sklearn KNN  Our KNN (Prototypes)  Sklearn KNN (Prototypes)
+Our KNN                   1.000000     1.000000              0.971429                  0.971429
+Sklearn KNN               1.000000     1.000000              0.971429                  0.971429
+Our KNN (Prototypes)      0.971429     0.971429              1.000000                  1.000000
+Sklearn KNN (Prototypes)  0.971429     0.971429              1.000000                  1.000000

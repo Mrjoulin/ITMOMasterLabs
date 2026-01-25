@@ -1,0 +1,106 @@
+# python source/main.py --loss binary --with-plotting > logs/full_pipeline_log.txt 2>&1
+
+Running data pipeline...
+Numeric features describe:
+         count       mean        std    min        25%        50%         75%     max  unique  nan  nan %
+Age     2111.0  24.312600   6.345968  14.00  19.947192  22.777890   26.000000   61.00    1402    0    0.0
+Height  2111.0   1.701677   0.093305   1.45   1.630000   1.700499    1.768464    1.98    1574    0    0.0
+Weight  2111.0  86.586058  26.191172  39.00  65.473343  83.000000  107.430682  173.00    1525    0    0.0
+FCVC    2111.0   2.419043   0.533927   1.00   2.000000   2.385502    3.000000    3.00     810    0    0.0
+NCP     2111.0   2.685628   0.778039   1.00   2.658738   3.000000    3.000000    4.00     635    0    0.0
+CH2O    2111.0   2.008011   0.612953   1.00   1.584812   2.000000    2.477420    3.00    1268    0    0.0
+FAF     2111.0   1.010298   0.850592   0.00   0.124505   1.000000    1.666678    3.00    1190    0    0.0
+TUE     2111.0   0.657866   0.608927   0.00   0.000000   0.625350    1.000000    2.00    1129    0    0.0
+target  2111.0  -0.079109   0.997102  -1.00  -1.000000  -1.000000    1.000000    1.00       2    0    0.0
+Categorical features describe:
+               count unique                    top  freq  nan  nan %
+Gender          2111      2                   Male  1068    0    0.0
+family_history  2111      2                    yes  1726    0    0.0
+FAVC            2111      2                    yes  1866    0    0.0
+CAEC            2111      4              Sometimes  1765    0    0.0
+SMOKE           2111      2                     no  2067    0    0.0
+SCC             2111      2                     no  2015    0    0.0
+CALC            2111      4              Sometimes  1401    0    0.0
+MTRANS          2111      5  Public_Transportation  1580    0    0.0
+Data pipeline finished in 1.24 sec
+Start Train pipeline with params:
+-- Loss name: binary
+-- Multi-start number of starts: 10
+-- Train epochs: 100
+-- Batch size: 32
+-- Start multi-start with margin-based batch method
+---- Train model 1/10
+---- Set best accuracy to 0.5940
+---- Train model 2/10
+---- Set best accuracy to 0.5972
+---- Train model 3/10
+---- Train model 4/10
+---- Set best accuracy to 0.6161
+---- Train model 5/10
+---- Train model 6/10
+---- Train model 7/10
+---- Train model 8/10
+---- Set best accuracy to 0.6209
+---- Train model 9/10
+---- Set best accuracy to 0.6335
+---- Train model 10/10
+---- Set best accuracy to 0.9652
+-- Complete multi-start with margin-based batch method with best accuracy 0.9652
+-- Start multi-start with random batch method
+---- Train model 1/10
+---- Set best accuracy to 0.5829
+---- Train model 2/10
+---- Train model 3/10
+---- Train model 4/10
+---- Set best accuracy to 0.8231
+---- Train model 5/10
+---- Set best accuracy to 0.9226
+---- Train model 6/10
+---- Train model 7/10
+---- Train model 8/10
+---- Train model 9/10
+---- Train model 10/10
+-- Complete multi-start with random batch method with best accuracy 0.9226
+-- Start train with weights init by correlation and margin-based batch method
+-- Complete train with weights init by correlation and margin-based batch method with accuracy 0.8689
+-- Start train with weights init by correlation and random batch method
+-- Complete train with weights init by correlation and random batch method with accuracy 0.8705
+End Train pipeline in 1.91 sec, best accuracy: 0.9652
+
+Best custom model evaluation of functionality (Q):
+-- Train Q: 0.0293
+-- Test Q: 0.0348
+
+Evaluating best custom model:
+-- Accuracy: 0.9652
+-- Precision: 0.9641
+-- Recall: 0.9699
+-- F1-Score: 0.9670
+
+Confusion Matrix:
+                   Actual
+                 Positive Negative
+Predict Positive      322       12
+        Negative       10      289
+
+Plotting metrics...
+
+Training and evaluating sklearn models for comparison...
+Train SKLearn models
+-- Train LogisticRegression with SGD
+-- LogisticRegression accuracy: 0.8799
+-- Train SVC (Support Vector Machine Classifier) with SGD
+-- SVC accuracy: 0.9100
+End training SKLearn models in 0.01 sec, best accuracy 0.9100
+
+Evaluating best sklearn model:
+-- Accuracy: 0.9100
+-- Precision: 0.9508
+-- Recall: 0.8735
+-- F1-Score: 0.9105
+
+Confusion Matrix (sklearn):
+                   Actual
+                 Positive Negative
+Predict Positive      290       15
+        Negative       42      286
