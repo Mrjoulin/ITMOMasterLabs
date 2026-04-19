@@ -1,0 +1,308 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: polymarket-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-polymarket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-polymarket_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-polymarket}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 2G
+          cpus: '1'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-polymarket}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polymarket-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: polymarket-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning --maxmemory 256mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - polymarket-network
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: polymarket-airflow-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./src:/opt/airflow/src
+    entrypoint: /bin/bash
+    command: >
+      -c "
+        airflow db init &&
+        airflow users create \
+          --username ${AIRFLOW_USER:-admin} \
+          --password ${AIRFLOW_PASSWORD:-admin} \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true &&
+        airflow connections add polymarket_postgres \
+          --conn-type postgres \
+          --conn-host postgres \
+          --conn-schema ${POSTGRES_DB:-polymarket} \
+          --conn-login ${POSTGRES_USER:-polymarket} \
+          --conn-password ${POSTGRES_PASSWORD:-polymarket_pass} || true &&
+        airflow db migrate
+      "
+    networks:
+      - polymarket-network
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: polymarket-airflow-scheduler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+      POLYMARKET_API_KEY: ${POLYMARKET_API_KEY}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./src:/opt/airflow/src
+    user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+    command: scheduler
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD-SHELL", 'bash -c "airflow jobs check --job-type SchedulerJob --hostname $$(hostname)"']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - polymarket-network
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: polymarket-airflow-webserver
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
+      AIRFLOW__WEBSERVER__WORKERS: 4
+      AIRFLOW__WEBSERVER__WORKER_CLASS: gthread
+      AIRFLOW__WEBSERVER__WORKER_TIMEOUT: 120
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: 'true'
+      POLYMARKET_API_KEY: ${POLYMARKET_API_KEY}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./src:/opt/airflow/src
+    user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+    ports:
+      - "8080:8080"
+    command: api-server
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 2G
+          cpus: '1'
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - polymarket-network
+
+  airflow-triggerer:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: polymarket-airflow-triggerer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      POLYMARKET_API_KEY: ${POLYMARKET_API_KEY}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./src:/opt/airflow/src
+    user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+    command: triggerer
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    networks:
+      - polymarket-network
+
+  airflow-worker:
+    build:
+      context: .
+      dockerfile: docker/airflow/Dockerfile
+    container_name: polymarket-airflow-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+      AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'false'
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__CORE__XCOM_PICKLING: 'false'
+      AIRFLOW__CELERY__WORKER_CONCURRENCY: 8
+      AIRFLOW__CELERY__WORKER_PREFETCH_MULTIPLIER: 1
+      POLYMARKET_API_KEY: ${POLYMARKET_API_KEY}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./src:/opt/airflow/src
+    user: "${AIRFLOW_UID:-50000}:${AIRFLOW_GID:-0}"
+    command: celery worker
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2'
+        reservations:
+          memory: 1.5G
+          cpus: '1'
+    networks:
+      - polymarket-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: polymarket-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    networks:
+      - polymarket-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  polymarket-network:
+    driver: bridge
