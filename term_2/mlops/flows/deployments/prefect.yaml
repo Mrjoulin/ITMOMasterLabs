@@ -1,0 +1,113 @@
+# preparation steps
+build: null
+push: null
+pull: null
+
+# deployment configurations
+deployments:
+- name: "aggregator-streaming"
+  version: "1.0.0"
+  tags: [ "aggregator", "streaming", "btc-usd" ]
+  description: "Real‑time streaming aggregator that processes BTC‑USD ticks and publishes per‑second results"
+  schedule:
+    cron: "*/5 * * * *"
+    timezone: "UTC"
+
+  entrypoint: src/aggregator.py:aggregator_streaming_flow
+  parameters: {}
+
+  work_pool:
+    name: "local-pool"
+- name: "redis-cleanup-deployment"
+  version: "1.0.0"
+  tags: [ "redis", "cleanup", "maintenance" ]
+  description: "Hourly cleanup of empty and old Redis keys"
+  schedule:
+    cron: "0 * * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: src/cleanup_redis.py:cleanup_redis_flow
+  parameters: {}
+- name: "events_meta_collect"
+  version: "1.0.0"
+  tags: [ "polymarket", "events" ]
+  description: "Hourly collect events general info and save to Postgres"
+  schedule:
+    cron: "0 * * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: src/events_meta_collect.py:update_events_metadata
+  parameters:
+    logical_date: null
+- name: "polymarket-order-book"
+  version: "1.0.0"
+  tags: [ "polymarket", "order" ]
+  description: "Collect bid/ask prices from Polymarket by WebSocket"
+  schedule:
+    cron: "*/5 * * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: src/polymarket_orderbook.py:collect_order_book
+  parameters: {}
+- name: "model-train"
+  version: "1.0.0"
+  tags: [ "polymarket", "model", "train" ]
+  description: "Train model for UP/DOWN prediction"
+  schedule:
+    cron: "1/10 * * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: model/train_model.py:model_train_flow
+  parameters: {}
+
+- name: "model-bets"
+  version: "1.0.0"
+  tags: [ "polymarket", "model", "bets" ]
+  description: "Make bets based on model predictions"
+  schedule:
+    cron: "*/5 * * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: model/make_bets.py:make_model_bets
+  parameters: {}
+- name: "cleanup-mlflow-runs"
+  version: "1.0.0"
+  tags: [ "mlflow", "cleanup", "maintenance" ]
+  description: "Daily cleanup of MLflow runs and artifacts older than 1 day"
+  schedule:
+    cron: "0 2 * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: src/cleanup_mlflow_runs.py:cleanup_mlflow_runs_flow
+  parameters: {}
+- name: "cleanup-prefect-runs"
+  version: "1.0.0"
+  tags: [ "prefect", "cleanup", "maintenance" ]
+  description: "Daily cleanup of Prefect runs and artifacts older than 48 hours"
+  schedule:
+    cron: "0 3 * * *"
+    timezone: "UTC"
+
+  work_pool:
+    name: "local-pool"
+
+  entrypoint: src/cleanup_prefect_runs.py:cleanup_prefect_runs_flow
+  parameters: {}

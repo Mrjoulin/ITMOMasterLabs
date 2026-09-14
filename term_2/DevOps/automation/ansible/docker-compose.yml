@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.docker/config.json:/config.json
+    networks:
+      - focusflow-network
+    command: --interval 30
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: focusflow-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-devops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-devops}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - focusflow-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devops -d devops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  backend:
+    image: miryz/devops-2026:backend-latest
+    container_name: focusflow-backend
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SECRET_KEY: ${PRIVATE_KEY_PATH}
+      PUBLIC_KEY: ${PUBLIC_KEY_PATH}
+    ports:
+      - "5555:5555"
+    networks:
+      - focusflow-network
+    depends_on:
+      - postgres
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:5555/docs || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  frontend:
+    image: miryz/devops-2026:frontend-latest
+    container_name: focusflow-frontend
+    ports:
+      - "80:80"
+    networks:
+      - focusflow-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  focusflow-network:
+    driver: bridge

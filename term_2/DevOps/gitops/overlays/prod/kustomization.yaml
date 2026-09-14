@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - base/backend/backend-deployment.yaml
+  - base/backend/backend-hpa.yaml
+  - base/backend/backend-service.yaml
+  - base/frontend/frontend-deployment.yaml
+  - base/frontend/frontend-service.yaml
+  - base/postgres/postgres-deployment.yaml
+  - base/postgres/postgres-pvc.yaml
+  - base/postgres/postgres-secret.yaml
+  - base/postgres/postgres-service.yaml
+  - base/ingress.yaml
+  - base/namespace.yaml
+
+images:
+  - name: backend
+    newTag: latest
+  - name: frontend
+    newTag: latest

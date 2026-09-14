@@ -1,0 +1,495 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop, lab1 ]
+  pull_request:
+    branches: [ main, develop, lab1 ]
+
+jobs:
+
+# ================= BACKEND TEST =================
+
+  backend-test:
+    name: Backend - Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: ~/.local/bin/uv sync --all-extras
+
+      - name: Install test deps
+        working-directory: ./backend
+        run: ~/.local/bin/uv run pip install pytest-cov
+
+      - name: Run tests with coverage
+        working-directory: ./backend
+        run: |
+          ~/.local/bin/uv run pytest tests -v --tb=short \
+            --cov=src \
+            --cov=security \
+            --cov=main.py \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term
+
+      - name: Upload coverage
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+
+# ================= BACKEND SONAR =================
+
+  backend-sonar:
+    name: Backend - SonarQube
+    runs-on: ubuntu-latest
+    needs: backend-test
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip jq
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend
+
+      - name: Install sonar scanner
+        run: |
+          curl -sSLo sonar.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+          unzip sonar.zip
+          echo "$PWD/sonar-scanner-5.0.1.3006-linux/bin" >> $GITHUB_PATH
+
+      - name: Run Sonar analysis
+        working-directory: ./backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=backend \
+            -Dsonar.sources=. \
+            -Dsonar.exclusions=tests/** \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=$SONAR_TOKEN \
+            -Dsonar.python.coverage.reportPaths=coverage.xml \
+            -Dsonar.working.directory=.scannerwork
+
+      - name: Wait for CE task
+        working-directory: ./backend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          CE_TASK_ID=$(grep '^ceTaskId=' .scannerwork/report-task.txt | cut -d'=' -f2)
+
+          MAX=60
+          i=0
+
+          while true; do
+            RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+              "${{ secrets.SONAR_HOST_URL }}/api/ce/task?id=$CE_TASK_ID")
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.task.status')
+
+            if [ "$STATUS" = "SUCCESS" ]; then
+              ANALYSIS_ID=$(echo "$RESPONSE" | jq -r '.task.analysisId')
+              echo "ANALYSIS_ID=$ANALYSIS_ID" >> $GITHUB_ENV
+              break
+            fi
+
+            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+              exit 1
+            fi
+
+            i=$((i+1))
+            if [ "$i" -ge "$MAX" ]; then exit 1; fi
+
+            sleep 5
+          done
+
+      - name: Check Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status')
+
+          if [ "$STATUS" != "OK" ]; then
+            exit 1
+          fi
+
+
+# ================= BACKEND BUILD =================
+
+  backend-build:
+    name: Backend - Build
+    runs-on: ubuntu-latest
+    needs: backend-sonar
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: ~/.local/bin/uv sync --all-extras
+
+      - name: Sanity check
+        working-directory: ./backend
+        run: |
+          ~/.local/bin/uv run python -c "import main; print('backend OK')"
+
+
+# ================= FRONTEND TEST =================
+
+  frontend-test:
+    name: Frontend - Test
+    runs-on: ubuntu-latest
+    needs: backend-build
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+          cache-dependency-path: ./frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Ensure testing-library dom
+        working-directory: ./frontend
+        run: npm install -D @testing-library/dom@^10.0.0 --legacy-peer-deps
+
+      - name: Install coverage provider
+        working-directory: ./frontend
+        run: npm install -D @vitest/coverage-v8@2.1.9 --legacy-peer-deps
+
+      - name: Prepare coverage dir
+        working-directory: ./frontend
+        run: mkdir -p coverage
+
+      - name: Run tests with coverage
+        working-directory: ./frontend
+        run: npx vitest run --coverage --reporter=junit --reporter=default --outputFile.junit=./coverage/test-results.xml
+
+      - name: Verify coverage files
+        working-directory: ./frontend
+        run: |
+          if [ -f coverage/lcov.info ]; then
+            echo "lcov.info found"
+          else
+            echo "ERROR: lcov.info not found"
+            exit 1
+          fi
+          
+          if [ -f coverage/test-results.xml ]; then
+            echo "test-results.xml found"
+          else
+            echo "ERROR: test-results.xml not found"
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: |
+            frontend/coverage/lcov.info
+            frontend/coverage/test-results.xml
+          if-no-files-found: error
+
+# ================= FRONTEND SONAR =================
+
+  frontend-sonar:
+    name: Frontend - SonarQube
+    runs-on: ubuntu-latest
+    needs: frontend-test
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip jq
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+
+      - name: Install sonar scanner
+        run: |
+          curl -sSLo sonar.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip
+          unzip sonar.zip
+          echo "$PWD/sonar-scanner-5.0.1.3006-linux/bin" >> $GITHUB_PATH
+
+      - name: Run Sonar analysis
+        working-directory: ./frontend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=frontend \
+            -Dsonar.projectBaseDir=$(pwd) \
+            -Dsonar.sources=services \
+            -Dsonar.tests=tests \
+            -Dsonar.test.inclusions="**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx" \
+            -Dsonar.exclusions="**/node_modules/**,**/dist/**,**/coverage/**" \
+            -Dsonar.coverage.exclusions="**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx" \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+            -Dsonar.typescript.tsconfigPath=tsconfig.json \
+            -Dsonar.sourceEncoding=UTF-8 \
+            -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+            -Dsonar.login=$SONAR_TOKEN
+
+      - name: Wait for CE task
+        working-directory: ./frontend
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          CE_TASK_ID=$(grep '^ceTaskId=' .scannerwork/report-task.txt | cut -d'=' -f2)
+
+          MAX=60
+          i=0
+
+          while true; do
+            RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+              "${{ secrets.SONAR_HOST_URL }}/api/ce/task?id=$CE_TASK_ID")
+
+            STATUS=$(echo "$RESPONSE" | jq -r '.task.status')
+
+            if [ "$STATUS" = "SUCCESS" ]; then
+              ANALYSIS_ID=$(echo "$RESPONSE" | jq -r '.task.analysisId')
+              echo "ANALYSIS_ID=$ANALYSIS_ID" >> $GITHUB_ENV
+              break
+            fi
+
+            if [ "$STATUS" = "FAILED" ] || [ "$STATUS" = "CANCELED" ]; then
+              exit 1
+            fi
+
+            i=$((i+1))
+            if [ "$i" -ge "$MAX" ]; then exit 1; fi
+
+            sleep 5
+          done
+
+      - name: Check Quality Gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+            "${{ secrets.SONAR_HOST_URL }}/api/qualitygates/project_status?analysisId=$ANALYSIS_ID")
+
+          STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status')
+
+          if [ "$STATUS" != "OK" ]; then
+            exit 1
+          fi
+
+
+# ================= FRONTEND BUILD =================
+
+  frontend-build:
+    name: Frontend - Build
+    runs-on: ubuntu-latest
+    needs: frontend-sonar
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+
+# ================= DOCKER BUILD & PUSH =================
+
+  docker-build-push:
+    runs-on: ubuntu-latest
+    needs: frontend-build
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Yandex Registry
+        uses: docker/login-action@v4
+        with:
+          registry: cr.yandex
+          username: oauth
+          password: ${{ secrets.YANDEX_OAUTH_TOKEN }}
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: cr.yandex/${{ secrets.REGISTRY_ID }}/backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & Push Frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: cr.yandex/${{ secrets.REGISTRY_ID }}/frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+
+# ================= GITOPS UPDATE =================
+
+  update-gitops:
+    runs-on: ubuntu-latest
+    needs: docker-build-push
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update backend image (yq)
+        run: |
+          yq e -i '.spec.template.spec.containers[0].image = "cr.yandex/${{ secrets.REGISTRY_ID }}/backend:${{ github.sha }}"' gitops/overlays/prod/base/backend/backend-deployment.yaml
+
+      - name: Update frontend image (yq)
+        run: |
+          yq e -i '.spec.template.spec.containers[0].image = "cr.yandex/${{ secrets.REGISTRY_ID }}/frontend:${{ github.sha }}"' gitops/overlays/prod/base/frontend/frontend-deployment.yaml
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add gitops
+
+          git diff --cached --quiet && exit 0
+
+          git commit -m "chore(gitops): update images to ${{ github.sha }}"
+          git push
+
+  notify:
+    name: Notify Telegram
+    runs-on: ubuntu-latest
+    needs:
+      - backend-test
+      - backend-sonar
+      - backend-build
+      - frontend-test
+      - frontend-sonar
+      - frontend-build
+      - docker-build-push
+      - update-gitops
+    if: always()
+
+    steps:
+      - name: Send Telegram message
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NEEDS_JSON: ${{ toJson(needs) }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          echo "$NEEDS_JSON" > needs.json
+
+          # Detect if ANY job failed (authoritative)
+          HAS_FAILURE=$(jq '[.[] | select(.result=="failure")] | length' needs.json)
+
+          SUCCESS=""
+          FAILED=""
+          SKIPPED=""
+
+          for row in $(jq -r 'to_entries[] | "\(.key)=\(.value.result)"' needs.json); do
+            JOB=$(echo $row | cut -d= -f1)
+            RES=$(echo $row | cut -d= -f2)
+
+            if [ "$RES" = "success" ]; then
+              SUCCESS="$SUCCESS\n✔ $JOB"
+            elif [ "$RES" = "failure" ]; then
+              FAILED="$FAILED\n✖ $JOB"
+            else
+              SKIPPED="$SKIPPED\n➖ $JOB ($RES)"
+            fi
+          done
+
+          if [ "$HAS_FAILURE" -gt 0 ]; then
+            STATUS="CI/CD FAILED"
+          else
+            STATUS="CI/CD SUCCESS"
+          fi
+
+          MSG="$STATUS
+
+          Repository: $REPO
+          Commit: ${SHA::7}
+          Author: $ACTOR
+
+          --- SUCCESS ---$SUCCESS
+
+          --- FAILED ---$FAILED
+
+          --- SKIPPED ---$SKIPPED
+
+          Run: https://github.com/$REPO/actions/runs/$RUN_ID"
+
+              curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+                -d chat_id="$CHAT_ID" \
+                --data-urlencode text="$MSG"
+
+

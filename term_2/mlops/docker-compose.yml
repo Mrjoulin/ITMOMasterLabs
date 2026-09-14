@@ -1,0 +1,476 @@
+version: '3.8'
+
+
+x-prefect-common:
+  &prefect-common
+  env_file:
+    - ${ENV_FILE_PATH:-.env}
+  environment:
+    &prefect-common-env
+    PREFECT_API_DATABASE_CONNECTION_URL: postgresql+asyncpg://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}
+    PREFECT_MESSAGING_BROKER: prefect_redis.messaging
+    PREFECT_MESSAGING_CACHE: prefect_redis.messaging
+    PREFECT_REDIS_MESSAGING_HOST: redis
+    PREFECT_REDIS_MESSAGING_PORT: 6379
+    PREFECT_REDIS_MESSAGING_DB: 0
+  depends_on:
+    &prefect-common-depends-on
+    redis:
+      condition: service_healthy
+    postgres:
+      condition: service_healthy
+
+
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: polymarket-postgres
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-polymarket}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-polymarket_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-polymarket}
+#    ports:
+#      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    deploy:
+      resources:
+        limits:
+          memory: 3G
+          cpus: '2'
+#        reservations:
+#          memory: 2G
+#          cpus: '1'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-polymarket}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: polymarket-redis
+    restart: unless-stopped
+#    ports:
+#      - "6379:6379"
+    volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: polymarket-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./docker/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=3d"
+      # Belt and braces: cap the volume too, so a cardinality regression cannot fill
+      # the disk again even if it slips past the relabel rules.
+      - "--storage.tsdb.retention.size=4GB"
+    ports:
+      - "9090:9090"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: polymarket-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-polymarket_admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      prometheus:
+        condition: service_started
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.66.0
+    container_name: polymarket-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis:6379
+#    ports:
+#      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    container_name: polymarket-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:5432/${POSTGRES_DB:-polymarket}?sslmode=disable"
+    # TimescaleDB has 5,779 chunk tables, and these three collectors emit ~28 series for
+    # every one of them. Measured 2026-08-22: 96% of all Prometheus series, ~1.1 GB/day
+    # of TSDB, and the /metrics scrape had grown past 60s so the target was timing out
+    # and returning NOTHING. Per-chunk stats are noise; hypertable totals are already
+    # available from usefull_sql/show_pg_tables_size.sql. Everything else
+    # (pg_up, stat_database, locks, wal, replication...) is untouched.
+    command:
+      - "--no-collector.stat_user_tables"
+      - "--no-collector.statio_user_tables"
+      - "--no-collector.statio_user_indexes"
+#    ports:
+#      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: polymarket-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    privileged: true
+    pid: host
+    command:
+      - --store_container_labels=true
+      - --housekeeping_interval=10s
+      - --env_metadata_whitelist=
+
+  docker-exporter:
+    build:
+      context: ./docker/docker-exporter
+    container_name: polymarket-docker-exporter
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    ports:
+      - "9323:9323"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - prometheus
+
+  loki:
+    image: grafana/loki:3.1.0
+    container_name: polymarket-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ./docker/monitoring/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+#    ports:
+#      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.1.0
+    container_name: polymarket-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - ./docker/monitoring/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    depends_on:
+      loki:
+        condition: service_started
+
+  listeners:
+    build:
+      context: services/listeners
+    container_name: polymarket-listeners
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      REDIS_URL: redis://${REDIS_HOST}:${REDIS_PORT}/0
+      POLYMARKET_WS_URL: ${POLYMARKET_WS_URL:-wss://ws-live-data.polymarket.com/}
+      BINANCE_WS_URL: ${BINANCE_WS_URL:-wss://stream.binance.com:9443/ws}
+      COINBASE_WS_URL: ${COINBASE_WS_URL:-wss://ws-feed.exchange.coinbase.com}
+      METRICS_POLL_INTERVAL_S: ${METRICS_POLL_INTERVAL_S:-10}
+#    ports:
+#      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      prometheus:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1'
+
+  prefect-server:
+    image: prefecthq/prefect:3-latest
+    <<: *prefect-common
+    depends_on:
+      <<: *prefect-common-depends-on
+    environment:
+      <<: *prefect-common-env
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_SERVER_UI_API_URL: ${PREFECT_SERVER_UI_API_URL:-http://localhost:4200/api}
+
+    command: prefect server start --no-services
+    ports:
+      - "4200:4200"
+
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:4200/api/health', timeout=1)" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  prefect-services:
+    image: prefecthq/prefect:3-latest
+    <<: *prefect-common
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    environment:
+      <<: *prefect-common-env
+
+    command: prefect server services start
+
+  flow-deployer:
+    build:
+      context: flows
+    image: my-prefect-flows:latest
+    <<: *prefect-common
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    environment:
+      <<: *prefect-common-env
+      PREFECT_API_URL: ${PREFECT_API_URL:-http://prefect-server:4200/api}
+    command: >
+      bash -c "
+        prefect work-pool create local-pool --type process || true &&
+        prefect --no-prompt deploy --all --prefect-file /app/deployments/prefect.yaml
+      "
+    restart: "no"
+
+  prefect-worker:
+    image: my-prefect-flows:latest   # use the same custom image
+    <<: *prefect-common
+    depends_on:
+      prefect-server:
+        condition: service_healthy
+    environment:
+      <<: *prefect-common-env
+      PREFECT_API_URL: ${PREFECT_API_URL:-http://prefect-server:4200/api}
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:${MLFLOW_PORT}}
+      MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-admin}
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD}
+      SAVE_RAW_DATA: false
+      PREFECT_RUNS_MAX_AGE_HOURS: ${PREFECT_RUNS_MAX_AGE_HOURS:-48}
+
+    command: prefect worker start --pool local-pool
+    restart: on-failure
+
+  storage:
+    image: rustfs/rustfs:1.0.0-alpha.83
+    container_name: polymarket-mlflow-storage
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_SERVER_DOMAINS: storage:9000
+      RUSTFS_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      RUSTFS_ACCESS_KEY: ${AWS_ACCESS_KEY_ID:-s3admin}
+      RUSTFS_SECRET_KEY: ${AWS_SECRET_ACCESS_KEY:-s3admin}
+      RUSTFS_CONSOLE_ENABLE: ${RUSTFS_CONSOLE_ENABLE:-true}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - storage-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", 'curl -s http://127.0.0.1:9000/health | grep -q ''"status":"ok"''' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  create-bucket:
+    image: amazon/aws-cli:2.33.25
+    container_name: polymarket-mlflow-create-bucket
+    depends_on:
+      storage:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        set -e;
+        echo 'Waiting for S3 gateway getting ready...';
+        if aws --endpoint-url=${MLFLOW_S3_ENDPOINT_URL} s3api head-bucket --bucket ${S3_BUCKET} 2>/dev/null; then
+          echo 'Bucket ${S3_BUCKET} already exists. Skipping creation.';
+        else
+          echo 'Creating bucket ${S3_BUCKET}...';
+          aws --endpoint-url=${MLFLOW_S3_ENDPOINT_URL} s3api create-bucket --bucket ${S3_BUCKET} --region ${AWS_DEFAULT_REGION};
+        fi
+      "
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      AWS_S3_ADDRESSING_STYLE: ${AWS_S3_ADDRESSING_STYLE:-path}
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+      S3_BUCKET: ${S3_BUCKET}
+    restart: "no"
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:${MLFLOW_VERSION}
+    container_name: polymarket-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+      create-bucket:
+        condition: service_completed_successfully
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      # Backend store URI built from vars
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI}
+
+      # S3/RustFS settings
+      MLFLOW_S3_ENDPOINT_URL: ${MLFLOW_S3_ENDPOINT_URL}
+      MLFLOW_ARTIFACTS_DESTINATION: ${MLFLOW_ARTIFACTS_DESTINATION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+      MLFLOW_S3_IGNORE_TLS: ${MLFLOW_S3_IGNORE_TLS:-"true"}
+      MLFLOW_SERVER_ALLOWED_HOSTS: ${MLFLOW_SERVER_ALLOWED_HOSTS:-"*"}
+      MLFLOW_FLASK_SERVER_SECRET_KEY: ${MLFLOW_FLASK_SERVER_SECRET_KEY}
+
+      # Server host/port
+      MLFLOW_HOST: ${MLFLOW_HOST}
+      MLFLOW_PORT: ${MLFLOW_PORT}
+    command:
+      - /bin/bash
+      - -c
+      - |
+        # mlflow[auth] is required by --app-name basic-auth: from 3.15 the basic-auth app
+        # imports Flask-WTF for CSRF validation and refuses to start without it.
+        # Version-matched so this can never pull a different mlflow than the image.
+        pip install --no-cache-dir psycopg2-binary boto3 "mlflow[auth]==3.15.1"
+        cat > /tmp/basic_auth.ini <<'AUTH_INI'
+        [mlflow]
+        default_permission = READ
+        database_uri = postgresql://${POSTGRES_USER:-polymarket}:${POSTGRES_PASSWORD:-polymarket_pass}@postgres:${POSTGRES_PORT:-5432}/mlflow
+        admin_username = ${MLFLOW_TRACKING_USERNAME:-admin}
+        admin_password = ${MLFLOW_TRACKING_PASSWORD}
+        authorization_function = mlflow.server.auth:authenticate_request_basic_auth
+        AUTH_INI
+        export MLFLOW_AUTH_CONFIG_PATH=/tmp/basic_auth.ini
+        mlflow server \
+          --backend-store-uri "${MLFLOW_BACKEND_STORE_URI}" \
+          --artifacts-destination "${MLFLOW_ARTIFACTS_DESTINATION}" \
+          --serve-artifacts \
+          --host "${MLFLOW_HOST}" \
+          --port "${MLFLOW_PORT}" \
+          --allowed-hosts "${MLFLOW_SERVER_ALLOWED_HOSTS}" \
+          --app-name basic-auth
+    ports:
+      - "${MLFLOW_PORT}:${MLFLOW_PORT}"
+    healthcheck:
+      test:
+        [
+            "CMD",
+            "python",
+            "-c",
+            "import urllib.request; urllib.request.urlopen('http://localhost:${MLFLOW_PORT}/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  model-serving:
+    image: ghcr.io/mlflow/mlflow:${MLFLOW_VERSION}
+    container_name: polymarket-model-serving
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    env_file:
+      - ${ENV_FILE_PATH:-.env}
+    environment:
+      # Backend store URI built from vars
+      MLFLOW_BACKEND_STORE_URI: ${MLFLOW_BACKEND_STORE_URI}
+      # Mlflow tracking uri
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:${MLFLOW_PORT}}
+      MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-admin}
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD}
+      # Model serving options
+      MODEL_SERVE_NAME: ${MODEL_SERVE_NAME}
+      MODEL_SERVE_HOST: ${MODEL_SERVE_HOST:-0.0.0.0}
+      MODEL_SERVE_PORT: ${MODEL_SERVE_PORT:-3000}
+      MODEL_POLL_INTERVAL: ${MODEL_POLL_INTERVAL:-5}
+    volumes:
+      - ./docker/model-serving/serve_latest.py:/usr/local/bin/serve_latest.py:ro
+    command:
+      - /bin/bash
+      - -c
+      - |
+        pip install uv
+        python3 /usr/local/bin/serve_latest.py
+    ports:
+      - "${MODEL_SERVE_PORT:-3000}:${MODEL_SERVE_PORT:-3000}"
+    healthcheck:
+      test:
+        [
+            "CMD",
+            "python",
+            "-c",
+            "import urllib.request; urllib.request.urlopen('http://localhost:${MODEL_SERVE_PORT:-3000}/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  storage-data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  loki_data:
+    driver: local

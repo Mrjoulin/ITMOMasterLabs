@@ -1,0 +1,54 @@
+---
+- name: Deploy application using docker-compose
+  hosts: docker_servers
+  become: true
+  vars:
+    app_directory: /opt/myapp
+
+  tasks:
+    - name: Create application directory
+      file:
+        path: "{{ app_directory }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy docker-compose.yml to server
+      copy:
+        src: docker-compose.yml
+        dest: "{{ app_directory }}/docker-compose.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    - name: Ensure Docker Compose is installed
+      get_url:
+        url: https://github.com/docker/compose/releases/latest/download/docker-compose-Linux-x86_64
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+        force: yes
+
+    - name: Run docker compose up -d
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_directory }}"
+        build: always
+        pull: missing
+        state: present
+      environment:
+        COMPOSE_HTTP_TIMEOUT: 300
+
+    - name: Wait for containers to start
+      wait_for:
+        timeout: 30
+      delegate_to: localhost
+      become: no
+
+    - name: Get container status
+      command: docker ps --format "table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Ports{{ '}}' }}"
+      register: containers_status
+      changed_when: false
+
+    - name: Display running containers
+      debug:
+        var: containers_status.stdout_lines

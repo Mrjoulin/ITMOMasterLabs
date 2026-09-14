@@ -1,0 +1,28 @@
+postgres:
+  host: localhost
+  port: 5433
+  user: polymarket
+  password: polymarket_pass
+  dbname: polymarket
+
+mlflow:
+  tracking_uri: http://localhost:4444
+  experiment_name: polymarket-btc-5m-cnn
+
+data:
+  window_size: 128
+  window_seconds: 140
+  test_size: 0.2
+  pad_mode: "last"
+
+model:
+  type: cnn1d
+  params:
+    filters: 8
+    kernel_size: 3
+    pool_size: 2
+    dense_units: 32
+    dropout: 0.5
+    learning_rate: 0.001
+    epochs: 20
+    batch_size: 32

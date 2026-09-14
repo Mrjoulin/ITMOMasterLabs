@@ -1,0 +1,28 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+  - name: PostgreSQL
+    uid: PostgreSQL
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    database: polymarket
+    user: grafanareader
+    jsonData:
+      sslmode: disable
+      maxOpenConns: 5
+      maxIdleConns: 2
+      maxIdleConnsAuto: true
+      connMaxLifetime: 14400
+      postgresVersion: 1600
+      timescaledb: true
+    secureJsonData:
+      password: grafana_user_secret_pass921
+    editable: true

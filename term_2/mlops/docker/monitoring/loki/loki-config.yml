@@ -1,0 +1,44 @@
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  instance_addr: 0.0.0.0
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+limits_config:
+  reject_old_samples: false
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 64
+  # Without this Loki keeps logs forever - it had grown to 4.9 GB by 2026-08-22.
+  retention_period: 72h
+
+# Retention is only enforced if the compactor is running with it enabled.
+compactor:
+  working_directory: /loki/compactor
+  delete_request_store: filesystem
+  retention_enabled: true
+  retention_delete_delay: 1h
+  compaction_interval: 10m
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+ruler:
+  alertmanager_url: http://localhost:9093

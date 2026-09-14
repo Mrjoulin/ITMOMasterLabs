@@ -1,0 +1,51 @@
+mlflow:
+  tracking_uri: http://mlflow:4444
+  experiment_name: polymarket-btc-5m-rf
+  registered_model: polymarket-rf-model
+  log_datasets: false
+
+data:
+  window_seconds: 120
+  event_duration: 300
+  target_threshold: 30
+  test_size: 0.2
+  n_events: 10000
+
+inference:
+  model_uri: http://model-serving:3000
+  predict_endpoint: /invocations
+
+model:
+  type: random_forest
+  use_optuna: false
+  params:
+    random_state: 42
+    n_estimators: 200
+    max_depth: 7
+    min_samples_split: 5
+    min_samples_leaf: 1
+    max_features: "sqrt"
+    n_jobs: 2
+    class_weight: "balanced_subsample"
+    max_samples: 0.52
+  optuna:
+    params:
+      n_trials: 50
+      optimize_direction: maximize
+      metric: avg_f1
+    tune:
+      n_estimators:
+        type: int
+        range: [150, 500]
+      max_depth:
+        type: int
+        range: [5, 7]
+      min_samples_split:
+        type: int
+        range: [2, 10]
+      min_samples_leaf:
+        type: int
+        range: [1, 10]
+      max_samples:
+        type: float
+        range: [0.5, 0.95]

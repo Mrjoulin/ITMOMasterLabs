@@ -1,0 +1,43 @@
+# Dependencies
+node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Build outputs
+dist
+dist-ssr
+*.local
+
+# Environment files (may contain secrets)
+.env
+.env.local
+.env.*.local
+
+# IDE and editor files
+.vscode/*
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Testing
+coverage
+.nyc_output
+tests/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+vitest.config.ts
+vitest.setup.ts
+.vitest/
+
+# Misc
+*.log

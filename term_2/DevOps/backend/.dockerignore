@@ -1,0 +1,94 @@
+# Ignore sensitive files and local configs
+keys/
+*.pem
+*.key
+.env
+.env.*
+
+# VCS and editor files
+.git
+.gitignore
+.vscode/
+*.swp
+.DS_Store
+
+# Python build/cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Tests (not needed in production image)
+tests/
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+env
+pip-log.txt
+pip-delete-this-directory
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environment
+.venv
+venv
+ENV
+env
+virtualenv
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Project specific
+migrations/versions/__pycache__
+
+# Secrets
+.env
+
+# Caches
+.uv_cache
+
+# Docker files (not needed in container)
+Dockerfile
+.dockerignore
+
+# Documentation
+README.md
+*.md
+
+# Development files
+# .python-version
+
+# Tests
+tests/
+test*.py
+conftest.py
+pytest.ini
+.coverage
+coverage.html
+
+# Temporary files
+*.txt

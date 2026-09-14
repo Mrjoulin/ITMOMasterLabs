@@ -1,0 +1,26 @@
+postgres:
+  host: localhost
+  port: 5433
+  user: polymarket
+  password: polymarket_pass
+  dbname: polymarket
+
+mlflow:
+  tracking_uri: http://localhost:4444
+  experiment_name: polymarket-btc-5m-lstm
+
+data:
+  window_size: 100
+  window_seconds: 120
+  test_size: 0.2
+  pad_mode: "last"
+
+model:
+  type: lstm
+  params:
+    lstm_units: 32
+    dropout: 0.4
+    dense_units: 64
+    learning_rate: 0.001
+    epochs: 50
+    batch_size: 32
